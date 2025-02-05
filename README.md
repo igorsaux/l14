@@ -42,7 +42,7 @@ The same syntax applies to "in-file" scripts.
 
 ### Other
 
-You can pass `-noupdate` as the last argument to skip checking for updates.
+You can pass `/noupdate` as the last argument to skip checking for updates.
 
 ## Building
 

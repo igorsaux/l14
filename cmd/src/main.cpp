@@ -69,10 +69,10 @@ int main( const int argc, char* argv[] )
 	{
 		const std::string_view arg{ argv[i] };
 
-		if ( argsSub == -1 && arg.starts_with( '-' ) )
+		if ( argsSub == -1 && arg.starts_with( '/' ) )
 			argsSub = argc - i;
 
-		if ( arg == "-noupdate" )
+		if ( arg == "/noupdate" )
 			doUpdate = false;
 	}
 

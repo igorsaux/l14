@@ -41,9 +41,9 @@ namespace l14
 {
 
 #ifdef L14_IS_WINDOWS
-constexpr std::string_view k_noupdateArg = " -noupdate";
+constexpr std::string_view k_noupdateArg = " /noupdate";
 #elif L14_IS_LINUX
-constexpr std::string_view k_noupdateArg = "-noupdate";
+constexpr std::string_view k_noupdateArg = "/noupdate";
 #else
 	#error The OS is not supported
 #endif
