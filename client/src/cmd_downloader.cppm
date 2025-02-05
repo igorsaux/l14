@@ -54,6 +54,7 @@ import l14.shared.http;
 import l14.shared.pbar;
 import l14.shared.sha256;
 import l14.shared.zip;
+import l14.shared.zstd;
 
 namespace l14::ld
 {
@@ -105,6 +106,7 @@ bool FetchServerInfo( const istd::Uri& httpServerUri,
 
 	if ( serverInfo.build.acz || serverInfo.build.downloadUrl.empty() )
 	{
+		// Does this even work?
 		serverInfo.build.downloadUrl =
 			istd::Uri{ httpServerUri, "client.zip" }.ToString();
 
@@ -261,7 +263,7 @@ struct DownloadedFile
 
 	std::filesystem::create_directories( folder );
 
-	std::cerr << std::format( "Extracting to {}: ", folder.string() );
+	std::cerr << std::format( "Extracting to '{}': ", folder.string() );
 
 	ProgressBar pb{};
 
@@ -479,6 +481,7 @@ bool DownloadClientCommandCb( const CommandDef& def,
 				return false;
 			}
 
+			if ( buildInfo.manifestHash.empty() )
 			{
 				const auto _manifestHash =
 					response.headers.find( k_manifestHashHeader );
@@ -487,6 +490,10 @@ bool DownloadClientCommandCb( const CommandDef& def,
 					manifestHash = "";
 				else
 					manifestHash = _manifestHash->second;
+			}
+			else
+			{
+				manifestHash = buildInfo.manifestHash;
 			}
 
 			if ( manifestHash.empty() )
@@ -644,14 +651,7 @@ bool DownloadClientCommandCb( const CommandDef& def,
 			bool preCompression{};
 
 			if ( ( header & ( 1 << 0 ) ) == 1 )
-			{
-				// TODO: Did not found any server to test
 				preCompression = true;
-
-				std::cerr << "Compressed blobs are not supported" << std::endl;
-
-				return false;
-			}
 
 			size_t fileIndex{};
 
@@ -661,24 +661,60 @@ bool DownloadClientCommandCb( const CommandDef& def,
 
 			while ( fileIndex < entries.size() )
 			{
-				u32 contentSize{};
+				u32 blobSize{};
 
-				if ( !reader.ReadNumberLE( contentSize ) )
+				if ( !reader.ReadNumberLE( blobSize ) )
 				{
-					std::cerr << "Unexpected EOF: expected file header"
+					std::cerr << "Unexpected EOF: expected blob size"
 							  << std::endl;
 
 					return false;
 				}
 
-				const auto content = reader.Read( contentSize );
+				u32 compressedBlobSize{};
 
-				if ( content.size() != contentSize )
+				if ( preCompression &&
+					 !reader.ReadNumberLE( compressedBlobSize ) )
 				{
-					std::cerr << "Unexpected EOF: expected content"
+					std::cerr << "Unexpected EOF: expected compressed blob size"
 							  << std::endl;
 
 					return false;
+				}
+
+				auto blobCompressed = preCompression && compressedBlobSize > 0;
+
+				auto blobData = reader.Read( blobCompressed ? compressedBlobSize
+															: blobSize );
+
+				if ( blobData.size() !=
+					 ( blobCompressed ? compressedBlobSize : blobSize ) )
+				{
+					std::cerr << "Unexpected EOF: expected blob data"
+							  << std::endl;
+
+					return false;
+				}
+
+				std::vector<char> decompressedBlob{};
+
+				if ( blobCompressed )
+				{
+					decompressedBlob.resize( blobSize, '\0' );
+
+					try
+					{
+						Zstd::Decompress( blobData, decompressedBlob );
+					}
+					catch ( const Zstd::Exception& err )
+					{
+						std::cerr << "Failed to decompress blob: " << err.what()
+								  << std::endl;
+
+						return false;
+					}
+
+					blobData = decompressedBlob;
 				}
 
 				const auto& entry = entries[fileIndex];
@@ -688,7 +724,7 @@ bool DownloadClientCommandCb( const CommandDef& def,
 				{
 					Blake2B b2{ 32 };
 
-					b2.Update( content );
+					b2.Update( blobData );
 
 					const auto hashBytes = b2.Final();
 
@@ -715,7 +751,7 @@ bool DownloadClientCommandCb( const CommandDef& def,
 						dstPath.parent_path() );
 					std::ofstream fileStream{ dstPath, std::ios::binary };
 
-					istd::fs::WriteAll( fileStream, content );
+					istd::fs::WriteAll( fileStream, blobData );
 				}
 				catch ( const std::ios::failure& err )
 				{
@@ -750,7 +786,16 @@ bool DownloadClientCommandCb( const CommandDef& def,
 		std::filesystem::path filePath;
 		bool downloadFile;
 
-		if ( buildInfo.hash.empty() )
+		// ACZ does not provide the hash of the archive
+		if ( buildInfo.acz )
+		{
+			std::cerr << "The server uses ACZ, so it can't be cached"
+					  << std::endl;
+
+			downloadFile = true;
+			filePath = cacheFolder / istd::UuidV4::Generate().ToString();
+		}
+		else if ( buildInfo.hash.empty() )
 		{
 			std::cerr << "The server did not provide the hash of the client"
 					  << std::endl;
@@ -780,7 +825,8 @@ bool DownloadClientCommandCb( const CommandDef& def,
 				return false;
 			}
 
-			if ( !istd::str::CompareInsensitive( result.hash, buildInfo.hash ) )
+			if ( !buildInfo.acz &&
+				 !istd::str::CompareInsensitive( result.hash, buildInfo.hash ) )
 			{
 				std::cerr
 					<< std::format(
@@ -804,7 +850,14 @@ bool DownloadClientCommandCb( const CommandDef& def,
 			std::cerr << "Client was found in the cache" << std::endl;
 		}
 
-		return ExtractZip( filePath, fileSize, folder, overwrite );
+		if ( !ExtractZip( filePath, fileSize, folder, overwrite ) )
+		{
+			std::filesystem::remove( filePath );
+
+			return false;
+		}
+
+		return true;
 	}
 	}
 

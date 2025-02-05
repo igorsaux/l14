@@ -20,6 +20,7 @@ target_sources(shared PUBLIC FILE_SET CXX_MODULES FILES
         src/pbar.cppm
         src/sha256.cppm
         src/zip.cppm
+        src/zstd.cppm
 )
 target_link_libraries(shared PRIVATE
         istd

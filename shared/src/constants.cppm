@@ -23,7 +23,7 @@ export module l14.shared.constants;
 namespace l14
 {
 
-export constexpr auto k_version = 1;
+export constexpr auto k_version = 2;
 export constexpr auto k_manifestDownloadProtocolVersion = 1;
 export constexpr auto k_configFileName = "config.cfg";
 export constexpr auto k_httpDefaultServerPort = 1212;
